@@ -11,7 +11,7 @@ fn main() {
         match stream {
             Ok(mut stream) => {
                 println!("New connection: {}", stream.peer_addr().unwrap());
-                let resp_response = "+Ok\r\n";
+                let resp_response = "+PONG\r\n";
                 stream.write(resp_response.as_bytes()).unwrap();
             }
             Err(e) => {
