@@ -1,5 +1,5 @@
-use std::{
-    io::{Read, Write},
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
 
@@ -14,28 +14,38 @@ impl Server {
         }
     }
 
-    pub fn run(self) {
-        let listener = TcpListener::bind(&self.addr).unwrap();
+    pub async fn run(self) {
+        let listener = TcpListener::bind(&self.addr).await.unwrap();
+        loop {
+            let stream = listener.accept().await;
+            match stream {
+                Ok((mut stream, _)) => {
+                    println!("Accepted connection from {:?}", stream.peer_addr().unwrap());
 
-        for stream in listener.incoming() {
-            println!("connection established!");
-            let mut stream = stream.unwrap();
-            let mut buffer = [0; 1024];
+                    tokio::spawn(async move {
+                        let mut buf = [0; 512];
+                        loop {
+                            let n = stream.read(&mut buf).await.unwrap();
 
-            // keep reading the stream
-            loop {
-                let bytes_read = stream.read(&mut buffer).unwrap();
-                if bytes_read == 0 {
-                    break;
-                }
+                            if n == 0 {
+                                break;
+                            }
 
-                let actions = Action::from_bytes(&buffer[..bytes_read]);
-                for action in actions {
-                    match action {
-                        Action::Ping => {
-                            stream.write(b"+PONG\r\n").unwrap();
+                            let actions = Action::from_bytes(&buf[..n]);
+                            println!("Received actions: {:?}", actions);
+
+                            for action in actions {
+                                match action {
+                                    Action::Ping => {
+                                        stream.write(b"+PONG\r\n").await.unwrap();
+                                    }
+                                }
+                            }
                         }
-                    }
+                    });
+                }
+                Err(e) => {
+                    println!("Failed to accept connection: {:?}", e);
                 }
             }
         }
