@@ -1,7 +1,7 @@
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-};
+pub mod resp;
+use anyhow::Result;
+use resp::Value;
+use tokio::net::{TcpListener, TcpStream};
 
 pub struct Server {
     addr: String,
@@ -19,29 +19,11 @@ impl Server {
         loop {
             let stream = listener.accept().await;
             match stream {
-                Ok((mut stream, _)) => {
+                Ok((stream, _)) => {
                     println!("Accepted connection from {:?}", stream.peer_addr().unwrap());
 
                     tokio::spawn(async move {
-                        let mut buf = [0; 512];
-                        loop {
-                            let n = stream.read(&mut buf).await.unwrap();
-
-                            if n == 0 {
-                                break;
-                            }
-
-                            let actions = Action::from_bytes(&buf[..n]);
-                            println!("Received actions: {:?}", actions);
-
-                            for action in actions {
-                                match action {
-                                    Action::Ping => {
-                                        stream.write(b"+PONG\r\n").await.unwrap();
-                                    }
-                                }
-                            }
-                        }
+                        handle_conn(stream).await;
                     });
                 }
                 Err(e) => {
@@ -52,85 +34,54 @@ impl Server {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Action {
-    Ping,
-}
+// *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n
 
-impl Action {
-    pub fn from_str(action: &str) -> Vec<Self> {
-        let lines = action.lines();
-        let mut actions = Vec::new();
-        for line in lines {
-            match line {
-                "PING" => actions.push(Self::Ping),
-                _ => {}
+async fn handle_conn(stream: TcpStream) {
+    let mut handler = resp::RespHandler::new(stream);
+
+    println!("Starting read loop");
+
+    loop {
+        let value = match handler.read_value().await {
+            Ok(v) => v,
+            Err(e) => {
+                println!("Failed to read value: {:?}", e);
+                break;
             }
-        }
-        actions
-    }
+        };
+        println!("Got value {:?}", value);
 
-    pub fn from_bytes(action: &[u8]) -> Vec<Self> {
-        let action = String::from_utf8(action.to_vec()).unwrap();
-        Self::from_str(&action)
+        let response = if let Some(v) = value {
+            let (command, args) = extract_command(v).unwrap();
+
+            match command.as_str() {
+                "PING" => Value::SimpleString("PONG".to_string()),
+                "ECHO" => args.first().unwrap().clone(),
+                c => panic!("Cannot handle command {}", c),
+            }
+        } else {
+            break;
+        };
+
+        println!("Sending value {:?}", response);
+
+        handler.write_value(response).await.unwrap();
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::Action;
-
-    #[test]
-    fn parse_actions_from_str() {
-        let req = "PING\nPING\n";
-        let actions = Action::from_str(req);
-        assert_eq!(actions.len(), 2);
+fn extract_command(value: Value) -> Result<(String, Vec<Value>)> {
+    match value {
+        Value::Array(a) => Ok((
+            unpack_bulk_str(a.first().unwrap().clone())?,
+            a.into_iter().skip(1).collect(),
+        )),
+        _ => Err(anyhow::anyhow!("Unexpected command format")),
     }
+}
 
-    #[test]
-    fn parse_action_from_str_ping() {
-        let req = "PING";
-        let actions = Action::from_str(req);
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0], Action::Ping);
-    }
-
-    #[test]
-    fn parse_action_from_str_empty() {
-        let req = "";
-        let actions = Action::from_str(req);
-        assert_eq!(actions.len(), 0);
-    }
-
-    #[test]
-    fn parse_action_from_bytes_ping() {
-        let req = b"PING";
-        let actions = Action::from_bytes(req);
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0], Action::Ping);
-    }
-
-    #[test]
-    fn parse_action_from_bytes_empty() {
-        let req = b"";
-        let actions = Action::from_bytes(req);
-        assert_eq!(actions.len(), 0);
-    }
-
-    #[test]
-    fn parse_action_from_bytes_ping_newline() {
-        let req = b"PING\n";
-        let actions = Action::from_bytes(req);
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0], Action::Ping);
-    }
-
-    #[test]
-    fn parse_action_from_bytes_ping_newline_ping() {
-        let req = b"PING\nPING";
-        let actions = Action::from_bytes(req);
-        assert_eq!(actions.len(), 2);
-        assert_eq!(actions[0], Action::Ping);
-        assert_eq!(actions[1], Action::Ping);
+fn unpack_bulk_str(value: Value) -> Result<String> {
+    match value {
+        Value::BulkString(s) => Ok(s),
+        _ => Err(anyhow::anyhow!("Expected command to be a bulk string")),
     }
 }
