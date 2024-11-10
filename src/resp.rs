@@ -1,29 +1,24 @@
+use anyhow::Result;
+use bytes::BytesMut;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
 
-use bytes::BytesMut;
-
-use anyhow::Result;
-
 #[derive(Clone, Debug)]
 
 pub enum Value {
     SimpleString(String),
-
     BulkString(String),
-
     Array(Vec<Value>),
+    Null,
 }
 
 impl Value {
     pub fn serialize(self) -> String {
         match self {
             Value::SimpleString(s) => format!("+{}\r\n", s),
-
             Value::BulkString(s) => format!("${}\r\n{}\r\n", s.chars().count(), s),
-
             _ => panic!("Unsupported value for serialize"),
         }
     }
@@ -31,7 +26,6 @@ impl Value {
 
 pub struct RespHandler {
     stream: TcpStream,
-
     buffer: BytesMut,
 }
 
@@ -39,20 +33,16 @@ impl RespHandler {
     pub fn new(stream: TcpStream) -> Self {
         RespHandler {
             stream,
-
             buffer: BytesMut::with_capacity(512),
         }
     }
 
     pub async fn read_value(&mut self) -> Result<Option<Value>> {
         let bytes_read = self.stream.read_buf(&mut self.buffer).await?;
-
         if bytes_read == 0 {
             return Ok(None);
         }
-
         let (v, _) = parse_message(self.buffer.split())?;
-
         Ok(Some(v))
     }
 
@@ -66,11 +56,8 @@ impl RespHandler {
 fn parse_message(buffer: BytesMut) -> Result<(Value, usize)> {
     match buffer[0] as char {
         '+' => parse_simple_string(buffer),
-
         '*' => parse_array(buffer),
-
         '$' => parse_bulk_string(buffer),
-
         _ => Err(anyhow::anyhow!("Not a known value type {:?}", buffer)),
     }
 }
@@ -78,10 +65,8 @@ fn parse_message(buffer: BytesMut) -> Result<(Value, usize)> {
 fn parse_simple_string(buffer: BytesMut) -> Result<(Value, usize)> {
     if let Some((line, len)) = read_until_crlf(&buffer[1..]) {
         let string = String::from_utf8(line.to_vec()).unwrap();
-
         return Ok((Value::SimpleString(string), len + 1));
     }
-
     return Err(anyhow::anyhow!("Invalid string {:?}", buffer));
 }
 
@@ -89,7 +74,6 @@ fn parse_array(buffer: BytesMut) -> Result<(Value, usize)> {
     let (array_length, mut bytes_consumed) =
         if let Some((line, len)) = read_until_crlf(&buffer[1..]) {
             let array_length = parse_int(line)?;
-
             (array_length, len + 1)
         } else {
             return Err(anyhow::anyhow!("Invalid array format {:?}", buffer));

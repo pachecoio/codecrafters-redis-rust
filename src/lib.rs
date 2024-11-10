@@ -1,16 +1,26 @@
 pub mod resp;
+use std::collections::HashMap;
+
 use anyhow::Result;
 use resp::Value;
 use tokio::net::{TcpListener, TcpStream};
 
-pub struct Server {
+#[derive(Clone, Debug)]
+pub struct Server<'a> {
     addr: String,
+    db: &'a MemoryDb,
 }
 
-impl Server {
-    pub fn new(addr: &str) -> Self {
+#[derive(Clone, Debug, Default)]
+pub struct MemoryDb {
+    pub data: HashMap<String, Value>,
+}
+
+impl<'a> Server<'a> {
+    pub fn new(addr: &str, db: &'a MemoryDb) -> Self {
         Self {
             addr: addr.to_string(),
+            db,
         }
     }
 
@@ -22,8 +32,9 @@ impl Server {
                 Ok((stream, _)) => {
                     println!("Accepted connection from {:?}", stream.peer_addr().unwrap());
 
+                    let mut db = self.db.clone();
                     tokio::spawn(async move {
-                        handle_conn(stream).await;
+                        handle_conn(&mut db, stream).await;
                     });
                 }
                 Err(e) => {
@@ -34,9 +45,7 @@ impl Server {
     }
 }
 
-// *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n
-
-async fn handle_conn(stream: TcpStream) {
+async fn handle_conn<'a>(db: &'a mut MemoryDb, stream: TcpStream) {
     let mut handler = resp::RespHandler::new(stream);
 
     println!("Starting read loop");
@@ -57,6 +66,19 @@ async fn handle_conn(stream: TcpStream) {
             match command.as_str() {
                 "PING" => Value::SimpleString("PONG".to_string()),
                 "ECHO" => args.first().unwrap().clone(),
+                "SET" => {
+                    let key = unpack_bulk_str(args.first().unwrap().clone()).unwrap();
+                    let value = args.get(1).unwrap().clone();
+                    db.data.insert(key, value);
+                    Value::SimpleString("OK".to_string())
+                }
+                "GET" => {
+                    let key = unpack_bulk_str(args.first().unwrap().clone()).unwrap();
+                    match db.data.get(&key) {
+                        Some(v) => v.clone(),
+                        None => Value::Null,
+                    }
+                }
                 c => panic!("Cannot handle command {}", c),
             }
         } else {
@@ -68,6 +90,8 @@ async fn handle_conn(stream: TcpStream) {
         handler.write_value(response).await.unwrap();
     }
 }
+
+// *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n
 
 fn extract_command(value: Value) -> Result<(String, Vec<Value>)> {
     match value {
