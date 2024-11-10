@@ -1,5 +1,8 @@
 pub mod resp;
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Result;
 use resp::Value;
@@ -13,7 +16,40 @@ pub struct Server<'a> {
 
 #[derive(Clone, Debug, Default)]
 pub struct MemoryDb {
-    pub data: HashMap<String, Value>,
+    data: Arc<Mutex<HashMap<String, Value>>>,
+}
+
+impl MemoryDb {
+    pub fn new() -> Self {
+        Self {
+            data: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub fn set(&mut self, key: String, value: Value, expiry: Option<u64>) {
+        let mut data = self.data.lock().unwrap();
+        data.insert(key.clone(), value);
+
+        if let Some(expiry) = expiry {
+            let data = self.data.clone();
+            let key = key.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(expiry)).await;
+                let mut data = data.lock().unwrap();
+                data.remove(&key);
+            });
+        }
+    }
+
+    pub fn get(&self, key: &str) -> Option<Value> {
+        let data = self.data.lock().unwrap();
+        data.get(key).cloned()
+    }
+
+    pub fn remove(&mut self, key: &str) {
+        let mut data = self.data.lock().unwrap();
+        data.remove(key);
+    }
 }
 
 impl<'a> Server<'a> {
@@ -66,15 +102,10 @@ async fn handle_conn<'a>(db: &'a mut MemoryDb, stream: TcpStream) {
             match command.as_str() {
                 "PING" => Value::SimpleString("PONG".to_string()),
                 "ECHO" => args.first().unwrap().clone(),
-                "SET" => {
-                    let key = unpack_bulk_str(args.first().unwrap().clone()).unwrap();
-                    let value = args.get(1).unwrap().clone();
-                    db.data.insert(key, value);
-                    Value::SimpleString("OK".to_string())
-                }
+                "SET" => handle_set(db, args),
                 "GET" => {
                     let key = unpack_bulk_str(args.first().unwrap().clone()).unwrap();
-                    match db.data.get(&key) {
+                    match db.get(&key) {
                         Some(v) => v.clone(),
                         None => Value::Null,
                     }
@@ -108,4 +139,26 @@ fn unpack_bulk_str(value: Value) -> Result<String> {
         Value::BulkString(s) => Ok(s),
         _ => Err(anyhow::anyhow!("Expected command to be a bulk string")),
     }
+}
+
+fn handle_set<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
+    let key = unpack_bulk_str(args.first().unwrap().clone()).unwrap();
+    let value = args.get(1).unwrap().clone();
+
+    let expiry = match args.get(2) {
+        Some(v) => match unpack_bulk_str(v.clone()) {
+            Ok(s) if s == "px" => {
+                if let Value::BulkString(v) = args.get(3).unwrap() {
+                    Some(v.parse::<u64>().unwrap())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        },
+        None => None,
+    };
+
+    db.set(key, value, expiry);
+    Value::SimpleString("OK".to_string())
 }
