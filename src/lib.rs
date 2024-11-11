@@ -103,13 +103,8 @@ async fn handle_conn<'a>(db: &'a mut MemoryDb, stream: TcpStream) {
                 "PING" => Value::SimpleString("PONG".to_string()),
                 "ECHO" => args.first().unwrap().clone(),
                 "SET" => handle_set(db, args),
-                "GET" => {
-                    let key = unpack_bulk_str(args.first().unwrap().clone()).unwrap();
-                    match db.get(&key) {
-                        Some(v) => v.clone(),
-                        None => Value::Null,
-                    }
-                }
+                "GET" => handle_get(db, args),
+                "INCR" => handle_incr(db, args),
                 c => panic!("Cannot handle command {}", c),
             }
         } else {
@@ -161,4 +156,36 @@ fn handle_set<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
 
     db.set(key, value, expiry);
     Value::SimpleString("OK".to_string())
+}
+
+fn handle_get<'a>(db: &'a MemoryDb, args: Vec<Value>) -> Value {
+    let key = unpack_bulk_str(args.first().unwrap().clone()).unwrap();
+    match db.get(&key) {
+        Some(v) => v.clone(),
+        None => Value::Null,
+    }
+}
+
+fn handle_incr<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
+    let key = unpack_bulk_str(args.first().unwrap().clone()).unwrap();
+    match db.get(&key) {
+        Some(Value::Integer(i)) => {
+            db.set(key, Value::Integer(i + 1), None);
+            Value::Integer(i + 1)
+        }
+        Some(Value::SimpleString(s)) if s.parse::<i64>().is_ok() => {
+            let i = s.parse::<i64>().unwrap();
+            db.set(key, Value::Integer(i + 1), None);
+            Value::Integer(i + 1)
+        }
+        Some(Value::BulkString(s)) if s.parse::<i64>().is_ok() => {
+            let i = s.parse::<i64>().unwrap();
+            db.set(key, Value::Integer(i + 1), None);
+            Value::Integer(i + 1)
+        }
+        _ => {
+            db.set(key, Value::Integer(1), None);
+            Value::Integer(1)
+        }
+    }
 }
