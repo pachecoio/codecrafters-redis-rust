@@ -12,6 +12,7 @@ pub enum Value {
     BulkString(String),
     Array(Vec<Value>),
     Integer(i64),
+    Error(String),
     Null,
 }
 
@@ -22,6 +23,7 @@ impl Value {
             Value::BulkString(s) => format!("${}\r\n{}\r\n", s.chars().count(), s),
             Value::Null => "$-1\r\n".to_string(),
             Value::Integer(i) => format!(":{}\r\n", i),
+            Value::Error(e) => format!("-{}\r\n", e),
             _ => panic!("Unsupported value for serialize"),
         }
     }

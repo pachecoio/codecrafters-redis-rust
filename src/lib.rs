@@ -161,7 +161,7 @@ fn handle_set<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
 fn handle_get<'a>(db: &'a MemoryDb, args: Vec<Value>) -> Value {
     let key = unpack_bulk_str(args.first().unwrap().clone()).unwrap();
     match db.get(&key) {
-        Some(Value::Integer(i) ) => Value::SimpleString(i.to_string()),
+        Some(Value::Integer(i)) => Value::SimpleString(i.to_string()),
         Some(v) => v.clone(),
         None => Value::Null,
     }
@@ -174,16 +174,20 @@ fn handle_incr<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
             db.set(key, Value::Integer(i + 1), None);
             Value::Integer(i + 1)
         }
-        Some(Value::SimpleString(s)) if s.parse::<i64>().is_ok() => {
-            let i = s.parse::<i64>().unwrap();
-            db.set(key, Value::Integer(i + 1), None);
-            Value::Integer(i + 1)
-        }
-        Some(Value::BulkString(s)) if s.parse::<i64>().is_ok() => {
-            let i = s.parse::<i64>().unwrap();
-            db.set(key, Value::Integer(i + 1), None);
-            Value::Integer(i + 1)
-        }
+        Some(Value::SimpleString(s)) => match s.parse::<i64>() {
+            Ok(i) => {
+                db.set(key, Value::Integer(i + 1), None);
+                Value::Integer(i + 1)
+            }
+            Err(_) => Value::Error("value is not an integer or out of range".to_string()),
+        },
+        Some(Value::BulkString(s)) => match s.parse::<i64>() {
+            Ok(i) => {
+                db.set(key, Value::Integer(i + 1), None);
+                Value::Integer(i + 1)
+            }
+            Err(_) => Value::Error("value is not an integer or out of range".to_string()),
+        },
         _ => {
             db.set(key, Value::Integer(1), None);
             Value::Integer(1)
