@@ -179,14 +179,14 @@ fn handle_incr<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
                 db.set(key, Value::Integer(i + 1), None);
                 Value::Integer(i + 1)
             }
-            Err(_) => Value::Error("value is not an integer or out of range".to_string()),
+            Err(_) => Value::Error("ERR value is not an integer or out of range".to_string()),
         },
         Some(Value::BulkString(s)) => match s.parse::<i64>() {
             Ok(i) => {
                 db.set(key, Value::Integer(i + 1), None);
                 Value::Integer(i + 1)
             }
-            Err(_) => Value::Error("value is not an integer or out of range".to_string()),
+            Err(_) => Value::Error("ERR value is not an integer or out of range".to_string()),
         },
         _ => {
             db.set(key, Value::Integer(1), None);
