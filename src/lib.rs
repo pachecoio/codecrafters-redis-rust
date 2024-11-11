@@ -175,17 +175,19 @@ fn handle_incr<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
         }
         Some(Value::SimpleString(s)) if s.parse::<i64>().is_ok() => {
             let i = s.parse::<i64>().unwrap();
-            db.set(key, Value::Integer(i + 1), None);
+            let value = i + 1;
+            db.set(key, Value::SimpleString(value.to_string()), None);
             Value::Integer(i + 1)
         }
         Some(Value::BulkString(s)) if s.parse::<i64>().is_ok() => {
             let i = s.parse::<i64>().unwrap();
-            db.set(key, Value::Integer(i + 1), None);
+            let value = i + 1;
+            db.set(key, Value::SimpleString(value.to_string()), None);
             Value::Integer(i + 1)
         }
         _ => {
             db.set(key, Value::Integer(1), None);
-            Value::Integer(1)
+            Value::SimpleString("1".to_string())
         }
     }
 }
