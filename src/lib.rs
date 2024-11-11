@@ -161,6 +161,7 @@ fn handle_set<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
 fn handle_get<'a>(db: &'a MemoryDb, args: Vec<Value>) -> Value {
     let key = unpack_bulk_str(args.first().unwrap().clone()).unwrap();
     match db.get(&key) {
+        Some(Value::Integer(i) ) => Value::SimpleString(i.to_string()),
         Some(v) => v.clone(),
         None => Value::Null,
     }
@@ -175,19 +176,17 @@ fn handle_incr<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
         }
         Some(Value::SimpleString(s)) if s.parse::<i64>().is_ok() => {
             let i = s.parse::<i64>().unwrap();
-            let value = i + 1;
-            db.set(key, Value::SimpleString(value.to_string()), None);
+            db.set(key, Value::Integer(i + 1), None);
             Value::Integer(i + 1)
         }
         Some(Value::BulkString(s)) if s.parse::<i64>().is_ok() => {
             let i = s.parse::<i64>().unwrap();
-            let value = i + 1;
-            db.set(key, Value::SimpleString(value.to_string()), None);
+            db.set(key, Value::Integer(i + 1), None);
             Value::Integer(i + 1)
         }
         _ => {
             db.set(key, Value::Integer(1), None);
-            Value::SimpleString("1".to_string())
+            Value::Integer(1)
         }
     }
 }
