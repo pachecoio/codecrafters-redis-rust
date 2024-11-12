@@ -97,8 +97,33 @@ async fn handle_conn<'a>(db: &'a mut MemoryDb, stream: TcpStream) {
         };
         println!("Got value {:?}", value);
 
-        let response = if let Some(v) = value {
-            let (command, args) = extract_command(v).unwrap();
+        let response = handle_command(peer_addr, db, value);
+
+        println!("Sending value {:?}", response);
+
+        handler.write_value(response).await.unwrap();
+    }
+}
+
+fn handle_command<'a>(
+    peer_addr: std::net::SocketAddr,
+    db: &'a mut MemoryDb,
+    value: Option<Value>,
+) -> Value {
+    match value {
+        Some(v) => {
+            let (command, args) = extract_command(v.clone()).unwrap();
+
+            match db.get(&peer_addr.to_string()) {
+                Some(Value::Array(mut cmds)) => {
+                    if command != "MULTI" && command != "EXEC" {
+                        cmds.push(v);
+                        db.set(peer_addr.to_string(), Value::Array(cmds), None);
+                        return Value::SimpleString("QUEUED".to_string());
+                    }
+                }
+                _ => {}
+            }
 
             match command.as_str() {
                 "PING" => Value::SimpleString("PONG".to_string()),
@@ -110,13 +135,8 @@ async fn handle_conn<'a>(db: &'a mut MemoryDb, stream: TcpStream) {
                 "EXEC" => handle_exec(peer_addr, db, args),
                 c => panic!("Cannot handle command {}", c),
             }
-        } else {
-            break;
-        };
-
-        println!("Sending value {:?}", response);
-
-        handler.write_value(response).await.unwrap();
+        }
+        None => Value::Error("No command provided".to_string()),
     }
 }
 
@@ -198,11 +218,7 @@ fn handle_incr<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
     }
 }
 
-fn handle_multi<'a>(
-    peer_addr: std::net::SocketAddr,
-    db: &'a mut MemoryDb,
-    args: Vec<Value>,
-) -> Value {
+fn handle_multi<'a>(peer_addr: std::net::SocketAddr, db: &'a mut MemoryDb, _: Vec<Value>) -> Value {
     let current_cmds = db
         .get(&peer_addr.to_string())
         .unwrap_or(Value::Array(vec![]));
@@ -212,16 +228,17 @@ fn handle_multi<'a>(
     Value::SimpleString("OK".to_string())
 }
 
-fn handle_exec<'a>(
-    peer_addr: std::net::SocketAddr,
-    db: &'a mut MemoryDb,
-    args: Vec<Value>,
-) -> Value {
+fn handle_exec<'a>(peer_addr: std::net::SocketAddr, db: &'a mut MemoryDb, _: Vec<Value>) -> Value {
     let current_cmds = db.get(&peer_addr.to_string());
 
     match current_cmds {
         Some(Value::Array(cmds)) => {
-            let results = vec![];
+            let mut results = vec![];
+            for cmd in cmds {
+                let result = handle_command(peer_addr, db, Some(cmd));
+                results.push(result);
+            }
+
             db.remove(&peer_addr.to_string());
             Value::Array(results)
         }

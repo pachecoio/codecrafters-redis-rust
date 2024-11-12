@@ -33,6 +33,13 @@ impl Value {
             }
         }
     }
+
+    pub fn as_array(&self) -> Option<&Vec<Value>> {
+        match self {
+            Value::Array(a) => Some(a),
+            _ => None,
+        }
+    }
 }
 
 pub struct RespHandler {
