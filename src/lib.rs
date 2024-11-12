@@ -106,6 +106,7 @@ async fn handle_conn<'a>(db: &'a mut MemoryDb, stream: TcpStream) {
                 "GET" => handle_get(db, args),
                 "INCR" => handle_incr(db, args),
                 "MULTI" => handle_multi(db, args),
+                "EXEC" => handle_exec(db, args),
                 c => panic!("Cannot handle command {}", c),
             }
         } else {
@@ -198,4 +199,8 @@ fn handle_incr<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
 
 fn handle_multi<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
     Value::SimpleString("OK".to_string())
+}
+
+fn handle_exec<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
+    Value::Error("ERR EXEC without MULTI".to_string())
 }
