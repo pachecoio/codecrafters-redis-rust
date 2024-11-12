@@ -82,6 +82,7 @@ impl<'a> Server<'a> {
 }
 
 async fn handle_conn<'a>(db: &'a mut MemoryDb, stream: TcpStream) {
+    let peer_addr = stream.peer_addr().unwrap();
     let mut handler = resp::RespHandler::new(stream);
 
     println!("Starting read loop");
@@ -105,8 +106,8 @@ async fn handle_conn<'a>(db: &'a mut MemoryDb, stream: TcpStream) {
                 "SET" => handle_set(db, args),
                 "GET" => handle_get(db, args),
                 "INCR" => handle_incr(db, args),
-                "MULTI" => handle_multi(db, args),
-                "EXEC" => handle_exec(db, args),
+                "MULTI" => handle_multi(peer_addr, db, args),
+                "EXEC" => handle_exec(peer_addr, db, args),
                 c => panic!("Cannot handle command {}", c),
             }
         } else {
@@ -197,10 +198,33 @@ fn handle_incr<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
     }
 }
 
-fn handle_multi<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
+fn handle_multi<'a>(
+    peer_addr: std::net::SocketAddr,
+    db: &'a mut MemoryDb,
+    args: Vec<Value>,
+) -> Value {
+    let current_cmds = db
+        .get(&peer_addr.to_string())
+        .unwrap_or(Value::Array(vec![]));
+
+    db.set(peer_addr.to_string(), current_cmds, None);
+
     Value::SimpleString("OK".to_string())
 }
 
-fn handle_exec<'a>(db: &'a mut MemoryDb, args: Vec<Value>) -> Value {
-    Value::Error("ERR EXEC without MULTI".to_string())
+fn handle_exec<'a>(
+    peer_addr: std::net::SocketAddr,
+    db: &'a mut MemoryDb,
+    args: Vec<Value>,
+) -> Value {
+    let current_cmds = db.get(&peer_addr.to_string());
+
+    match current_cmds {
+        Some(Value::Array(cmds)) => {
+            let results = vec![];
+            db.remove(&peer_addr.to_string());
+            Value::Array(results)
+        }
+        _ => Value::Error("ERR EXEC without MULTI".to_string()),
+    }
 }

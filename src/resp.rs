@@ -24,7 +24,13 @@ impl Value {
             Value::Null => "$-1\r\n".to_string(),
             Value::Integer(i) => format!(":{}\r\n", i),
             Value::Error(e) => format!("-{}\r\n", e),
-            _ => panic!("Unsupported value for serialize"),
+            Value::Array(a) => {
+                let mut serialized = format!("*{}\r\n", a.len());
+                for v in a {
+                    serialized.push_str(&v.serialize());
+                }
+                serialized
+            }
         }
     }
 }
