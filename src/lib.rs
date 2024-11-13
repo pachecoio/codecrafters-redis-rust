@@ -233,13 +233,14 @@ fn handle_exec<'a>(peer_addr: std::net::SocketAddr, db: &'a mut MemoryDb, _: Vec
 
     match current_cmds {
         Some(Value::Array(cmds)) => {
+            db.remove(&peer_addr.to_string());
+
             let mut results = vec![];
             for cmd in cmds {
                 let result = handle_command(peer_addr, db, Some(cmd));
                 results.push(result);
             }
 
-            db.remove(&peer_addr.to_string());
             Value::Array(results)
         }
         _ => Value::Error("ERR EXEC without MULTI".to_string()),
