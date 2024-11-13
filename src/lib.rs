@@ -116,7 +116,7 @@ fn handle_command<'a>(
 
             match db.get(&peer_addr.to_string()) {
                 Some(Value::Array(mut cmds)) => {
-                    if command != "MULTI" && command != "EXEC" {
+                    if command != "MULTI" && command != "EXEC" && command != "DISCARD" {
                         cmds.push(v);
                         db.set(peer_addr.to_string(), Value::Array(cmds), None);
                         return Value::SimpleString("QUEUED".to_string());
@@ -133,6 +133,7 @@ fn handle_command<'a>(
                 "INCR" => handle_incr(db, args),
                 "MULTI" => handle_multi(peer_addr, db, args),
                 "EXEC" => handle_exec(peer_addr, db, args),
+                "DISCARD" => handle_discard(peer_addr, db, args),
                 c => panic!("Cannot handle command {}", c),
             }
         }
@@ -245,4 +246,17 @@ fn handle_exec<'a>(peer_addr: std::net::SocketAddr, db: &'a mut MemoryDb, _: Vec
         }
         _ => Value::Error("ERR EXEC without MULTI".to_string()),
     }
+}
+
+fn handle_discard<'a>(
+    peer_addr: std::net::SocketAddr,
+    db: &'a mut MemoryDb,
+    _: Vec<Value>,
+) -> Value {
+    if db.get(&peer_addr.to_string()).is_none() {
+        return Value::Error("ERR DISCARD without MULTI".to_string());
+    }
+
+    db.remove(&peer_addr.to_string());
+    Value::SimpleString("OK".to_string())
 }
